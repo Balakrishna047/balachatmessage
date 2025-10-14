@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>External Chat - balachatmessages</title>
+    <style>
+        :root {
+            --primary-color: #0176d3;
+            --success-color: #2e844a;
+            --warning-color: #fe9339;
+            --error-color: #ea001e;
+            --salesforce-bg: #e1f5fe;
+            --external-bg: #f3e5f5;
+            --system-bg: #fff3e0;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .chat-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-header {
+            background: var(--primary-color);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .chat-header .subtitle {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .connection-status {
+            padding: 12px;
+            text-align: center;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            font-weight: bold;
+        }
+        
+        .connected { color: var(--success-color); }
+        .connecting { color: var(--warning-color); }
+        .disconnected { color: var(--error-color); }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #fafafa;
+        }
+        
+        .message {
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .message.salesforce {
+            background: var(--salesforce-bg);
+            border-left: 4px solid var(--primary-color);
+            margin-right: auto;
+        }
+        
+        .message.external {
+            background: var(--external-bg);
+            border-left: 4px solid #9c27b0;
+            margin-left: auto;
+        }
+        
+        .message.system {
+            background: var(--system-bg);
+            border-left: 4px solid var(--warning-color);
+            margin: 10px auto;
+            text-align: center;
+            max-width: 60%;
+        }
+        
+        .message-sender {
+            font-weight: bold;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+        
+        .message-content {
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
+        
+        .message-time {
+            font-size: 12px;
+            color: #666;
+            text-align: right;
+        }
+        
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #dee2e6;
+        }
+        
+        .chat-input {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .message-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+        
+        .send-button {
+            padding: 12px 24px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        
+        .send-button:hover:not(:disabled) {
+            background: #0161b1;
+        }
+        
+        .send-button:disabled {
+            background: #c9c9c9;
+            cursor: not-allowed;
+        }
+        
+        .user-info {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .user-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            flex: 1;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected { background: var(--success-color); }
+        .status-connecting { background: var(--warning-color); }
+        .status-disconnected { background: var(--error-color); }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>External Chat Client</h1>
+            <div class="subtitle">Connected to Salesforce Real-time Chat</div>
+        </div>
+        
+        <div class="connection-status" id="connectionStatus">
+            <span class="status-indicator status-connecting"></span>
+            Connecting to chat server...
+        </div>
+        
+        <div class="user-info">
+            <input type="text" id="userNameInput" class="user-input" 
+                   placeholder="Enter your name" value="External User">
+            <input type="text" id="roomInput" class="user-input" 
+                   placeholder="Room ID" value="salesforce-chat-room">
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="message system">
+                Welcome to Real-time Chat! Connecting to server...
+            </div>
+        </div>
+        
+        <div class="chat-input-container">
+            <div class="chat-input">
+                <input type="text" id="messageInput" class="message-input" 
+                       placeholder="Type your message..." disabled>
+                <button id="sendButton" class="send-button" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class ChatClient {
+            constructor() {
+                this.ws = null;
+                this.clientId = null;
+                this.roomId = 'salesforce-chat-room';
+                this.senderName = 'External User';
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                
+                this.initializeElements();
+                this.initializeEventListeners();
+                this.connect();
+            }
+            
+            initializeElements() {
+                this.connectionStatus = document.getElementById('connectionStatus');
+                this.chatMessages = document.getElementById('chatMessages');
+                this.messageInput = document.getElementById('messageInput');
+                this.sendButton = document.getElementById('sendButton');
+                this.userNameInput = document.getElementById('userNameInput');
+                this.roomInput = document.getElementById('roomInput');
+            }
+            
+            initializeEventListeners() {
+                this.sendButton.addEventListener('click', () => this.sendMessage());
+                this.messageInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.sendMessage();
+                });
+                
+                this.userNameInput.addEventListener('change', () => {
+                    this.senderName = this.userNameInput.value || 'External User';
+                });
+                
+                this.roomInput.addEventListener('change', () => {
+                    this.roomId = this.roomInput.value || 'salesforce-chat-room';
+                    if (this.isConnected) {
+                        this.joinRoom();
+                    }
+                });
+            }
+            
+            connect() {
+                try {
+                    // Use your deployed server URL
+                    const serverUrl = 'wss://balachatmessage.onrender.com';
+                    this.ws = new WebSocket(serverUrl);
+                    
+                    this.updateConnectionStatus('Connecting...', 'connecting');
+                    
+                    this.ws.onopen = () => {
+                        this.reconnectAttempts = 0;
+                        this.updateConnectionStatus('Connected', 'connected');
+                        this.joinRoom();
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        this.handleMessage(JSON.parse(event.data));
+                    };
+                    
+                    this.ws.onclose = (event) => {
+                        this.updateConnectionStatus('Disconnected', 'disconnected');
+                        this.attemptReconnect();
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateConnectionStatus('Connection error', 'disconnected');
+                    };
+                    
+                } catch (error) {
+                    console.error('Error connecting:', error);
+                    this.updateConnectionStatus('Connection failed', 'disconnected');
+                }
+            }
+            
+            updateConnectionStatus(message, status) {
+                this.isConnected = status === 'connected';
+                
+                const statusElement = this.connectionStatus;
+                statusElement.innerHTML = `
+                    <span class="status-indicator status-${status}"></span>
+                    ${message}
+                `;
+                statusElement.className = `connection-status ${status}`;
+                
+                this.messageInput.disabled = !this.isConnected;
+                this.sendButton.disabled = !this.isConnected || !this.messageInput.value.trim();
+            }
+            
+            joinRoom() {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'join',
+                        room: this.roomId,
+                        sender: this.senderName
+                    }));
+                    this.addSystemMessage(`Joined room: ${this.roomId}`);
+                }
+            }
+            
+            sendMessage() {
+                const content = this.messageInput.value.trim();
+                if (!content || !this.isConnected) return;
+                
+                const message = {
+                    type: 'chat',
+                    sender: this.senderName,
+                    content: content,
+                    source: 'external',
+                    room: this.roomId
+                };
+                
+                this.ws.send(JSON.stringify(message));
+                this.messageInput.value = '';
+                this.updateSendButtonState();
+            }
+            
+            handleMessage(data) {
+                switch (data.type) {
+                    case 'connection':
+                        this.clientId = data.clientId;
+                        this.addSystemMessage('Connected to chat server');
+                        break;
+                        
+                    case 'system':
+                        this.addSystemMessage(data.message);
+                        break;
+                        
+                    case 'chat':
+                        this.addChatMessage(data);
+                        break;
+                        
+                    case 'error':
+                        this.addSystemMessage(`Error: ${data.message}`);
+                        break;
+                }
+            }
+            
+            addChatMessage(messageData) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${messageData.source === 'salesforce' ? 'salesforce' : 'external'}`;
+                
+                messageDiv.innerHTML = `
+                    <div class="message-sender">${this.escapeHtml(messageData.sender)}</div>
+                    <div class="message-content">${this.escapeHtml(messageData.content)}</div>
+                    <div class="message-time">${new Date(messageData.timestamp).toLocaleTimeString()}</div>
+                `;
+                
+                this.chatMessages.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+            
+            addSystemMessage(message) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message system';
+                messageDiv.textContent = message;
+                
+                this.chatMessages.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+            
+            scrollToBottom() {
+                setTimeout(() => {
+                    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+                }, 100);
+            }
+            
+            updateSendButtonState() {
+                this.sendButton.disabled = !this.isConnected || !this.messageInput.value.trim();
+            }
+            
+            attemptReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+                    
+                    this.addSystemMessage(`Attempting to reconnect in ${delay/1000} seconds... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+                    
+                    setTimeout(() => {
+                        this.connect();
+                    }, delay);
+                } else {
+                    this.addSystemMessage('Max reconnection attempts reached. Please refresh the page.');
+                }
+            }
+            
+            escapeHtml(unsafe) {
+                return unsafe
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        }
+        
+        // Initialize chat client when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.chatClient = new ChatClient();
+            
+            // Update send button state on input
+            document.getElementById('messageInput').addEventListener('input', function() {
+                document.getElementById('sendButton').disabled = 
+                    !window.chatClient.isConnected || !this.value.trim();
+            });
+        });
+    </script>
+</body>
+</html>
