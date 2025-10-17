@@ -1,8 +1,15 @@
-const express = require('express');
 const path = require('path');
-
+const express = require('express');
+const cors = require('cors'); // Add this
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Add CORS middleware
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Middleware
 app.use(express.static(path.join(__dirname, 'public')));
@@ -10,21 +17,21 @@ app.use(express.json());
 
 // Routes
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
-    service: 'Chat Client',
-    timestamp: new Date().toISOString()
-  });
+    res.status(200).json({ 
+        status: 'OK', 
+        service: 'Chat Client',
+        timestamp: new Date().toISOString()
+    });
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 External chat client running on port ${PORT}`);
-  console.log(`📍 Access at: http://localhost:${PORT}`);
+    console.log(`🚀 External chat client running on port ${PORT}`);
+    console.log(`📍 Access at: http://localhost:${PORT}`);
 });
 
 module.exports = app;

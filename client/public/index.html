@@ -443,6 +443,8 @@
       </div>
     </div>
 
+    <script src="config.js"></script>
+
     <script>
       class ProfessionalChatClient {
         constructor() {
@@ -489,7 +491,8 @@
           this.userNameInput.addEventListener("change", () => {
             this.senderName = this.userNameInput.value || "External User";
             if (this.isConnected) {
-              this.joinRoom();
+              this.clearMessages();
+              this.requestAnonymousAccess(); // ✅ Changed from joinRoom()
             }
           });
 
@@ -497,7 +500,7 @@
             this.roomId = this.roomInput.value || "salesforce-chat-room";
             if (this.isConnected) {
               this.clearMessages();
-              this.joinRoom();
+              this.requestAnonymousAccess(); // ✅ Changed from joinRoom()
             }
           });
         }
@@ -512,7 +515,7 @@
             this.ws.onopen = () => {
               this.reconnectAttempts = 0;
               this.updateConnectionStatus("Connected", "connected");
-              this.joinRoom();
+              this.requestAnonymousAccess(); // ✅ Changed from joinRoom()
             };
 
             this.ws.onmessage = (event) => {
@@ -560,6 +563,21 @@
           this.chatMessages.innerHTML = "";
         }
 
+        // ✅ NEW METHOD - Request external access
+        requestAnonymousAccess() {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                console.log('🔐 Requesting external access...');
+                this.ws.send(
+                    JSON.stringify({
+                        type: 'external_connect',
+                        sender: this.senderName,
+                        room: this.roomId,
+                    })
+                );
+            }
+        }
+
+        // Keep joinRoom for potential future use, but don't call it directly
         joinRoom() {
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(
@@ -569,7 +587,6 @@
                 sender: this.senderName,
               })
             );
-            this.addSystemMessage(`Joined room: ${this.roomId}`);
           }
         }
 
@@ -586,7 +603,6 @@
 
         handleTyping() {
           // Implement typing indicators if needed
-          // This can be extended to send typing events to the server
         }
 
         sendMessage() {
@@ -618,24 +634,40 @@
           );
         }
 
+        // ✅ UPDATED METHOD - Handle all message types
         handleMessage(data) {
+          console.log('📨 Received message:', data.type, data);
+          
           switch (data.type) {
-            case "connection":
+            case 'connection':
               this.clientId = data.clientId;
-              this.addSystemMessage("Connected to chat server");
+              this.addSystemMessage('Connected to chat server');
               break;
 
-            case "system":
+            case 'external_authenticated':
+              console.log('✅ Authenticated as external user');
+              this.addSystemMessage(`Connected as ${data.name}`);
+              break;
+
+            case 'joined':
+              console.log('✅ Joined room:', data.room);
               this.addSystemMessage(data.message);
               break;
 
-            case "chat":
+            case 'system':
+              this.addSystemMessage(data.message);
+              break;
+
+            case 'chat':
               this.addChatMessage(data);
               break;
 
-            case "error":
+            case 'error':
               this.addSystemMessage(`Error: ${data.message}`);
               break;
+              
+            default:
+              console.log('⚠️ Unhandled message type:', data.type, data);
           }
         }
 
@@ -716,6 +748,22 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
+        }
+        
+        // Add helper method to get chat token
+        getChatToken() {
+            // Try to get from URL parameter (for Salesforce integration)
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (token) {
+                // Store in sessionStorage for future use
+                sessionStorage.setItem('chatToken', token);
+                return token;
+            }
+            
+            // Try to get from sessionStorage
+            return sessionStorage.getItem('chatToken');
         }
       }
 

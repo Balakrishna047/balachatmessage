@@ -335,8 +335,37 @@ wss.on('connection', (ws, req) => {
     });
     
     ws.on('close', () => {
+        clearInterval(pingInterval);
         console.log(`❌ WebSocket disconnected: ${clientId}`);
         console.log(`📊 Total connections: ${clients.size - 1}`);
+        
+        // Notify room members if user was in a room
+        const room = userRooms.get(clientId);
+        if (room && clientState.userData) {
+            broadcastToRoom(room, {
+                type: 'system',
+                message: `${clientState.userData.name} has left the room`,
+                timestamp: new Date().toISOString()
+            }, clientId);
+        }
+        
+        // Clean up token if this was the only connection using it
+        const token = clientTokens.get(clientId);
+        if (token) {
+            // Check if any other client is using this token
+            let tokenInUse = false;
+            clientTokens.forEach((t, cId) => {
+                if (t === token && cId !== clientId) {
+                    tokenInUse = true;
+                }
+            });
+            
+            // Only remove token if no other client is using it
+            if (!tokenInUse) {
+                chatTokens.delete(token);
+                console.log(`🧹 Removed unused token for disconnected client`);
+            }
+        }
         
         // Remove from tracking
         clients.delete(clientId);
@@ -368,6 +397,11 @@ function handleWebSocketMessage(clientId, message) {
         case 'authenticate':
             authenticateClient(clientId, message);
             break;
+        
+        // ✅ Add this new case:
+        case 'external_connect':
+            handleExternalConnect(clientId, message);
+            break;
             
         case 'join':
             joinRoom(clientId, message);
@@ -381,9 +415,71 @@ function handleWebSocketMessage(clientId, message) {
             leaveRoom(clientId);
             break;
             
+        case 'ping':
+            // Handle ping messages
+            clientState.ws.send(JSON.stringify({
+                type: 'pong',
+                timestamp: new Date().toISOString()
+            }));
+            break;
+            
         default:
             sendError(clientId, 'Unknown message type');
     }
+}
+
+/**
+ * Handle external user connection (without token)
+ */
+function handleExternalConnect(clientId, message) {
+    const clientState = clients.get(clientId);
+    if (!clientState) return;
+    
+    const { sender, room } = message;
+    
+    if (!sender || !room) {
+        sendError(clientId, 'Sender name and room required');
+        return;
+    }
+    
+    // Create temporary user data for external users
+    clientState.userData = {
+        userId: `external_${clientId}`,
+        name: sender,
+        email: `${sender}@external.user`,
+        username: sender,
+        profile: 'External User',
+        source: 'external',
+        createdAt: Date.now()
+    };
+    clientState.isAuthenticated = true;
+    
+    // Send success response
+    clientState.ws.send(JSON.stringify({
+        type: 'external_authenticated',
+        message: 'Connected as external user',
+        name: sender,
+        timestamp: new Date().toISOString()
+    }));
+    
+    // Auto-join the room
+    userRooms.set(clientId, room);
+    
+    clientState.ws.send(JSON.stringify({
+        type: 'joined',
+        room: room,
+        message: `Joined room: ${room}`,
+        timestamp: new Date().toISOString()
+    }));
+    
+    // Notify others
+    broadcastToRoom(room, {
+        type: 'system',
+        message: `${sender} (external) has joined the room`,
+        timestamp: new Date().toISOString()
+    }, clientId);
+    
+    console.log(`✅ External user connected: ${sender} (${clientId})`);
 }
 
 /**
@@ -429,16 +525,33 @@ function authenticateClient(clientId, message) {
  */
 function joinRoom(clientId, message) {
     const clientState = clients.get(clientId);
-    if (!clientState || !clientState.isAuthenticated) {
-        sendError(clientId, 'Authentication required');
-        return;
-    }
+    if (!clientState) return;
     
-    const { room } = message;
+    const { room, sender } = message;
     
     if (!room) {
         sendError(clientId, 'Room name required');
         return;
+    }
+    
+    // Allow external users without authentication
+    if (!clientState.isAuthenticated) {
+        // Create temporary user data for external users
+        if (!sender) {
+            sendError(clientId, 'Sender name required for unauthenticated users');
+            return;
+        }
+        
+        clientState.userData = {
+            userId: clientId,
+            name: sender,
+            email: 'external@user.com',
+            source: 'external',
+            isTemporary: true
+        };
+        clientState.isAuthenticated = true;
+        
+        console.log(`✅ External user joined: ${sender} (${clientId})`);
     }
     
     userRooms.set(clientId, room);
@@ -449,6 +562,13 @@ function joinRoom(clientId, message) {
         message: `Joined room: ${room}`,
         timestamp: new Date().toISOString()
     }));
+    
+    // Notify other users in the room
+    broadcastToRoom(room, {
+        type: 'system',
+        message: `${clientState.userData.name} has joined the room`,
+        timestamp: new Date().toISOString()
+    }, clientId);
     
     console.log(`📍 Client ${clientId} joined room: ${room}`);
 }
@@ -477,9 +597,10 @@ function sendMessage(clientId, message) {
         content: message.content,
         timestamp: new Date().toISOString(),
         room: room,
-        source: 'external'
+        source: clientState.userData.source || 'unknown'
     };
     
+    // ✅ Fix: pass room as first parameter
     broadcastToRoom(room, chatMessage, clientId);
     console.log(`📨 Message in room ${room}: ${message.content}`);
 }
@@ -510,15 +631,23 @@ function leaveRoom(clientId) {
  */
 function broadcastToRoom(room, message, excludeClientId = null) {
     let delivered = 0;
+    let failed = 0;
+    
     clients.forEach((clientState, clientId) => {
         if (clientId !== excludeClientId && userRooms.get(clientId) === room) {
             if (clientState.ws.readyState === WebSocket.OPEN) {
-                clientState.ws.send(JSON.stringify(message));
-                delivered++;
+                try {
+                    clientState.ws.send(JSON.stringify(message));
+                    delivered++;
+                } catch (error) {
+                    console.error(`❌ Failed to send message to client ${clientId}:`, error);
+                    failed++;
+                }
             }
         }
     });
-    console.log(`📤 Message delivered to ${delivered} clients in room ${room}`);
+    
+    console.log(`📤 Message delivered to ${delivered} clients in room ${room}${failed > 0 ? ` (${failed} failed)` : ''}`);
 }
 
 /**
